@@ -1,0 +1,28 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Environment and secrets
+.env
+.env.*
+
+# Local runtime data
+.gradio/
+data/runtime_sessions/
+data/media/
+data/sessions/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/tsconfig.app.tsbuildinfo
+
+# OS / editor
+.DS_Store
+*.swp
+
+# Accidental local artifacts
+exec -l /
