@@ -1,0 +1,13 @@
+.venv
+__pycache__
+*.py[cod]
+.env
+.env.*
+.git
+.gradio
+data/runtime_sessions
+data/media
+data/sessions
+frontend/node_modules
+frontend/tsconfig.app.tsbuildinfo
+exec -l /

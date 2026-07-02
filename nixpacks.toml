@@ -1,0 +1,11 @@
+# Fallback if Dockerfile build is not used.
+providers = ["python", "node"]
+
+[phases.build]
+cmds = [
+  "pip install -r requirements.txt",
+  "cd frontend && npm ci && npm run build",
+]
+
+[start]
+cmd = "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8001}"
