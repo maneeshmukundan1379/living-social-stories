@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from logic import (
     MEDIA_DIR,
+    choice_id,
     current_audio_path,
     current_scene,
     generate_story_session,
@@ -107,12 +108,13 @@ def _build_cards(session: dict[str, Any]) -> tuple[list[FlashCard], list[FlashCa
     selected_ids = list(session.get("selected_choice_ids") or [])
     cards: list[FlashCard] = []
     for idx, choice in enumerate(choices):
+        resolved_id = choice_id(choice, idx)
         card = FlashCard(
-            id=str(choice.get("id") or f"choice_{idx}"),
+            id=resolved_id,
             index=idx,
             label=str(choice.get("label") or f"Choice {idx + 1}"),
             image_url=_media_url(image_paths[idx] if idx < len(image_paths) else None),
-            selected=str(choice.get("id") or f"choice_{idx}") in selected_ids,
+            selected=resolved_id in selected_ids,
         )
         cards.append(card)
     selected_cards = [
@@ -201,7 +203,7 @@ def prewarm_audio(session_id: str) -> dict[str, str]:
 def index():
     index_file = FRONTEND_DIST_DIR / "index.html"
     if index_file.exists():
-        return FileResponse(index_file)
+        return FileResponse(index_file, headers={"Cache-Control": "no-cache"})
     return JSONResponse(
         {
             "message": "Living Social Stories backend is running.",
@@ -219,7 +221,7 @@ def spa_fallback(full_path: str):
         return FileResponse(requested)
     index_file = FRONTEND_DIST_DIR / "index.html"
     if index_file.exists():
-        return FileResponse(index_file)
+        return FileResponse(index_file, headers={"Cache-Control": "no-cache"})
     raise HTTPException(status_code=404, detail="Not found.")
 
 

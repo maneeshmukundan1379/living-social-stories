@@ -793,6 +793,23 @@ def _choice_rank_for_event(label: str, event_name: str, suggested_steps: list[st
     return (2, 999)
 
 
+def _normalize_choice_ids(story: StoryPackage) -> StoryPackage:
+    if not story.scenes:
+        return story
+    normalized_scenes: list[StoryScene] = []
+    for scene in story.scenes:
+        normalized_choices: list[StoryChoice] = []
+        seen: set[str] = set()
+        for idx, choice in enumerate(scene.choices):
+            choice_id = str(choice.id or "").strip() or f"choice_{idx + 1}"
+            if choice_id in seen:
+                choice_id = f"choice_{idx + 1}"
+            seen.add(choice_id)
+            normalized_choices.append(choice.model_copy(update={"id": choice_id}))
+        normalized_scenes.append(scene.model_copy(update={"choices": normalized_choices}))
+    return story.model_copy(update={"scenes": normalized_scenes})
+
+
 def _normalize_story_choice_order(story: StoryPackage, event_name: str, suggested_steps: list[str]) -> StoryPackage:
     if not story.scenes:
         return story
@@ -1051,6 +1068,7 @@ def generate_story_session(
             activity_count=activity_count,
         )
     story = _normalize_story_choice_order(story, event_name, suggested_step_list)
+    story = _normalize_choice_ids(story)
     status = "Flash cards are ready. The child will tap pictures to hear what may happen at the event."
     session = _story_to_session(story)
     session["age"] = age
@@ -1074,6 +1092,11 @@ def current_scene(session: dict[str, Any]) -> dict[str, Any] | None:
     if idx < 0 or idx >= len(scenes):
         return None
     return scenes[idx]
+
+
+def choice_id(choice: dict[str, Any], idx: int) -> str:
+    raw = str(choice.get("id") or "").strip()
+    return raw or f"choice_{idx + 1}"
 
 
 def render_comic_strip(session: dict[str, Any]) -> str:
@@ -1121,7 +1144,7 @@ def selected_gallery_items(session: dict[str, Any]) -> list[str]:
     path_by_id: dict[str, str] = {}
     for idx, choice in enumerate(choices):
         if idx < len(paths) and paths[idx]:
-            path_by_id[str(choice.get("id") or f"choice_{idx}")] = paths[idx]
+            path_by_id[choice_id(choice, idx)] = paths[idx]
     items: list[str] = []
     for choice_id in selected_ids:
         path = path_by_id.get(str(choice_id))
@@ -1156,7 +1179,11 @@ def render_history_markdown(session: dict[str, Any]) -> str:
     scene = current_scene(session) or {}
     choices = scene.get("choices") or []
     selected = set(session.get("selected_choice_ids") or [])
-    labels = [str(choice.get("label") or "Choice") for choice in choices if choice.get("id") in selected]
+    labels = [
+        str(choice.get("label") or "Choice")
+        for idx, choice in enumerate(choices)
+        if choice_id(choice, idx) in selected
+    ]
     if not labels:
         return "No flash cards selected yet."
     return "### My Plan\n\n" + "\n".join(f"- {label}" for label in labels)
@@ -1219,7 +1246,7 @@ def _selected_choices(session: dict[str, Any]) -> list[dict[str, Any]]:
     scene = current_scene(session) or {}
     choices = list(scene.get("choices") or [])
     selected_ids = list(session.get("selected_choice_ids") or [])
-    choice_by_id = {str(choice.get("id") or ""): choice for choice in choices}
+    choice_by_id = {choice_id(choice, idx): choice for idx, choice in enumerate(choices)}
     selected: list[dict[str, Any]] = []
     for choice_id in selected_ids:
         choice = choice_by_id.get(str(choice_id))
@@ -1308,8 +1335,9 @@ def apply_choice(session: dict[str, Any], choice_slot: int) -> tuple[dict[str, A
 
     choice = choices[choice_slot]
     selected_ids = list(session.get("selected_choice_ids") or [])
-    if choice.get("id") not in selected_ids:
-        selected_ids.append(str(choice.get("id")))
+    resolved_id = choice_id(choice, choice_slot)
+    if resolved_id not in selected_ids:
+        selected_ids.append(resolved_id)
     session["selected_choice_ids"] = selected_ids
 
     session["last_feedback"] = str(choice.get("coach_line") or "")

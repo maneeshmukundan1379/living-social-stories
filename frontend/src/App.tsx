@@ -106,6 +106,7 @@ function App() {
   const [playingFullPlan, setPlayingFullPlan] = useState(false);
   const [audioPlaybackToken, setAudioPlaybackToken] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const playPlanButtonRef = useRef<HTMLButtonElement | null>(null);
 
   async function playAudioUrl(audioUrl: string | null): Promise<boolean> {
     if (!audioUrl || !audioRef.current) {
@@ -124,6 +125,11 @@ function App() {
     }
   }
 
+  const allCardsSelected = useMemo(
+    () => !!session && session.cards.length > 0 && session.cards.every((card) => card.selected),
+    [session],
+  );
+
   useEffect(() => {
     if (!session?.audio_url || !audioRef.current) {
       return;
@@ -134,6 +140,13 @@ function App() {
       }
     });
   }, [session?.audio_url, audioPlaybackToken]);
+
+  useEffect(() => {
+    if (!allCardsSelected || !playPlanButtonRef.current) {
+      return;
+    }
+    playPlanButtonRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [allCardsSelected]);
 
   useEffect(() => {
     if (!session?.session_id || !(session.cards?.length || 0)) {
@@ -147,10 +160,6 @@ function App() {
   const canSubmit = useMemo(
     () => form.child_name.trim() && form.event_name.trim() && !loadingCards,
     [form.child_name, form.event_name, loadingCards],
-  );
-  const hasSelectedCards = useMemo(
-    () => !!session && (session.selected_cards?.length || 0) > 0,
-    [session],
   );
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
@@ -437,7 +446,7 @@ function App() {
               <div className="mb-3 flex items-center justify-between">
                 <h3 className="text-xl font-bold text-slate-900">My Plan</h3>
                 <span className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-slate-600">
-                  {(session?.selected_cards || []).length} selected
+                  {(session?.cards || []).filter((card) => card.selected).length} of {session?.cards.length || 0} selected
                 </span>
               </div>
 
@@ -455,8 +464,14 @@ function App() {
                       </div>
                     ))}
                   </div>
-                  {hasSelectedCards ? (
+                  {!allCardsSelected && (session?.cards.length || 0) > 0 ? (
+                    <p className="mt-4 rounded-2xl bg-white px-4 py-3 text-sm leading-6 text-slate-600">
+                      Tap every picture card above to unlock Play Complete Plan.
+                    </p>
+                  ) : null}
+                  {allCardsSelected ? (
                     <button
+                      ref={playPlanButtonRef}
                       type="button"
                       onClick={handlePlayCompletePlan}
                       disabled={playingFullPlan || loadingCards}
