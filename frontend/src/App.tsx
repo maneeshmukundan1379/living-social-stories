@@ -222,7 +222,7 @@ function App() {
             : "Voice audio is ready. Tap the play button below if it does not start automatically.",
         );
       } else {
-        setStatus("The complete plan audio was created, but playback could not start.");
+        setStatus("Could not create complete plan audio. Check OPENAI_API_KEY on the server.");
       }
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to play the complete plan.");

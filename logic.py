@@ -1146,8 +1146,8 @@ def selected_gallery_items(session: dict[str, Any]) -> list[str]:
         if idx < len(paths) and paths[idx]:
             path_by_id[choice_id(choice, idx)] = paths[idx]
     items: list[str] = []
-    for choice_id in selected_ids:
-        path = path_by_id.get(str(choice_id))
+    for selected_id in selected_ids:
+        path = path_by_id.get(str(selected_id))
         if path:
             items.append(path)
     return items
@@ -1248,8 +1248,8 @@ def _selected_choices(session: dict[str, Any]) -> list[dict[str, Any]]:
     selected_ids = list(session.get("selected_choice_ids") or [])
     choice_by_id = {choice_id(choice, idx): choice for idx, choice in enumerate(choices)}
     selected: list[dict[str, Any]] = []
-    for choice_id in selected_ids:
-        choice = choice_by_id.get(str(choice_id))
+    for selected_id in selected_ids:
+        choice = choice_by_id.get(str(selected_id))
         if choice:
             selected.append(choice)
     return selected
