@@ -40,7 +40,8 @@ GEMINI_MODEL = os.getenv(
 OPENAI_IMAGE_MODEL = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1")
 OPENAI_TTS_MODEL = os.getenv("OPENAI_TTS_MODEL", "gpt-4o-mini-tts")
 OPENAI_TTS_VOICE = os.getenv("OPENAI_TTS_VOICE", "shimmer")
-TTS_STYLE_VERSION = "v3-browser-wav"
+OPENAI_TTS_TIMEOUT_SECONDS = max(8.0, float(os.getenv("OPENAI_TTS_TIMEOUT_SECONDS", "25")))
+TTS_STYLE_VERSION = "v4-openai-mp3"
 SYSTEM_TTS_VOICE = os.getenv("SYSTEM_TTS_VOICE", "Samantha")
 GOOGLE_CLOUD_PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT", "").strip()
 GOOGLE_CLOUD_LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1").strip() or "us-central1"
@@ -482,31 +483,60 @@ def _choice_audio_file_candidates(session: dict[str, Any], choice_slot: int, aud
     return _audio_file_candidates(session, f"choice_{choice_slot + 1}", audio_text)
 
 
+def _write_openai_speech_response(response: Any, out_path: Path) -> bool:
+    try:
+        if hasattr(response, "stream_to_file"):
+            response.stream_to_file(str(out_path))
+        elif hasattr(response, "write_to_file"):
+            response.write_to_file(str(out_path))
+        elif hasattr(response, "read"):
+            out_path.write_bytes(response.read())
+        elif hasattr(response, "content"):
+            out_path.write_bytes(response.content)
+        else:
+            return False
+        return out_path.exists() and out_path.stat().st_size > 0
+    except Exception:
+        return False
+
+
 def _generate_audio_with_openai(text: str, out_path: Path) -> bool:
     openai_key = _openai_api_key()
     if not openai_key or not text:
         return False
-    try:
-        name_match = re.match(r"\s*([A-Za-z][A-Za-z' -]{0,40})\s+(?:will|can)\b", text)
-        spoken_name = _tts_name_hint(name_match.group(1)) if name_match else "the child"
-        client = OpenAI(api_key=openai_key, timeout=8.0)
-        response = client.audio.speech.create(
-            model=OPENAI_TTS_MODEL,
-            voice=OPENAI_TTS_VOICE,
-            input=text,
-            instructions=(
-                "Speak in very cheerful, pleasant, natural US English for a young child. "
-                "Use clear American pronunciation, with a bright, smiling, upbeat, playful tone. "
-                "Sound warm, sweet, and animated like a happy storyteller, while staying easy to understand. "
-                "Pause gently between phrases and avoid sounding robotic. "
-                f"If the child's name appears, pronounce it carefully. A pronunciation guide for the child's name is: {spoken_name}."
-            ),
-            speed=0.92,
-        )
-        response.stream_to_file(str(out_path))
-        return out_path.exists() and out_path.stat().st_size > 0
-    except Exception:
-        return False
+
+    name_match = re.match(r"\s*([A-Za-z][A-Za-z' -]{0,40})\s+(?:will|can)\b", text)
+    spoken_name = _tts_name_hint(name_match.group(1)) if name_match else "the child"
+    instructions = (
+        "Speak in very cheerful, pleasant, natural US English for a young child. "
+        "Use clear American pronunciation, with a bright, smiling, upbeat, playful tone. "
+        "Sound warm, sweet, and animated like a happy storyteller, while staying easy to understand. "
+        "Pause gently between phrases and avoid sounding robotic. "
+        f"If the child's name appears, pronounce it carefully. A pronunciation guide for the child's name is: {spoken_name}."
+    )
+    models_to_try = [OPENAI_TTS_MODEL]
+    if OPENAI_TTS_MODEL != "tts-1":
+        models_to_try.append("tts-1")
+
+    for model_name in models_to_try:
+        instruction_attempts = [True, False] if model_name == OPENAI_TTS_MODEL else [False]
+        for use_instructions in instruction_attempts:
+            try:
+                client = OpenAI(api_key=openai_key, timeout=OPENAI_TTS_TIMEOUT_SECONDS)
+                kwargs: dict[str, Any] = {
+                    "model": model_name,
+                    "voice": OPENAI_TTS_VOICE,
+                    "input": text,
+                    "speed": 0.92,
+                }
+                if use_instructions and model_name == OPENAI_TTS_MODEL:
+                    kwargs["instructions"] = instructions
+                response = client.audio.speech.create(**kwargs)
+                if _write_openai_speech_response(response, out_path):
+                    return True
+            except Exception:
+                continue
+    return False
 
 
 def _convert_to_browser_wav(source: Path, dest: Path) -> bool:

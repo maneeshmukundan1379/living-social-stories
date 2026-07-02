@@ -111,8 +111,9 @@ function App() {
     if (!audioUrl || !audioRef.current) {
       return false;
     }
+    const playableUrl = `${audioUrl}${audioUrl.includes("?") ? "&" : "?"}v=${Date.now()}`;
     audioRef.current.pause();
-    audioRef.current.src = audioUrl;
+    audioRef.current.src = playableUrl;
     audioRef.current.currentTime = 0;
     audioRef.current.load();
     try {
@@ -177,7 +178,16 @@ function App() {
       const nextSession = await selectCard(session.session_id, card.index);
       setSession(nextSession);
       setAudioPlaybackToken((current) => current + 1);
-      setStatus(nextSession.status);
+      if (nextSession.audio_url) {
+        const started = await playAudioUrl(nextSession.audio_url);
+        setStatus(
+          started
+            ? nextSession.status
+            : "Voice is ready. Tap the play button below to hear this card.",
+        );
+      } else {
+        setStatus("This card was added, but voice audio could not be created. Check OPENAI_API_KEY on the server.");
+      }
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to add that card.");
     } finally {
@@ -465,7 +475,14 @@ function App() {
 
             <div className="mt-6 rounded-[2rem] bg-sky-50 p-4 ring-1 ring-sky-100">
               <div className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-sky-700">Voice</div>
-              <audio ref={audioRef} controls className="w-full" key={session?.audio_url || "empty"}>
+              <audio
+                ref={audioRef}
+                controls
+                playsInline
+                preload="auto"
+                className="w-full"
+                key={session?.audio_url || "empty"}
+              >
                 {session?.audio_url ? (
                   <source src={session.audio_url} type={audioMimeType(session.audio_url)} />
                 ) : null}
