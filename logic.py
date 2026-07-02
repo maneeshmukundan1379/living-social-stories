@@ -113,22 +113,38 @@ def _vertex_credentials_available() -> bool:
     return bool(creds_path and Path(creds_path).is_file())
 
 
-def _imagen_available() -> bool:
-    if _env_flag("DISABLE_IMAGEN") is True:
-        return False
+def _has_google_api_key() -> bool:
+    return bool((os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip())
+
+
+def _vertex_imagen_available() -> bool:
     if genai is None or not GOOGLE_CLOUD_PROJECT:
         return False
     if _env_flag("ENABLE_IMAGEN") is False:
         return False
-    # Vertex Imagen requires a GCP service-account JSON file. Gemini/Google API keys alone
-    # are not enough and the client can hang on Railway without credentials.
     return _vertex_credentials_available()
 
 
-def _create_imagen_client():
-    if not _imagen_available():
-        raise ValueError("Google Imagen is not configured.")
+def _google_imagen_available() -> bool:
+    if _env_flag("DISABLE_IMAGEN") is True:
+        return False
+    if genai is None:
+        return False
+    if _has_google_api_key():
+        return True
+    return _vertex_imagen_available()
+
+
+def _create_vertex_imagen_client():
+    if not _vertex_imagen_available():
+        raise ValueError("Vertex Imagen is not configured.")
     return genai.Client(vertexai=True, project=GOOGLE_CLOUD_PROJECT, location=GOOGLE_CLOUD_LOCATION)
+
+
+def _create_api_key_imagen_client():
+    if not _has_google_api_key():
+        raise ValueError("Google API key is not configured.")
+    return genai.Client(api_key=_gemini_api_key())
 
 
 def _write_generated_image(image_obj: Any, out_path: Path) -> bool:
@@ -146,23 +162,33 @@ def _write_generated_image(image_obj: Any, out_path: Path) -> bool:
 
 
 def _generate_image_with_imagen(prompt: str, out_path: Path, *, aspect_ratio: str = "1:1") -> bool:
-    if not _imagen_available():
+    if not _google_imagen_available():
         return False
 
-    def _run() -> bool:
-        try:
-            client = _create_imagen_client()
-            response = client.models.generate_images(
-                model=GOOGLE_IMAGEN_MODEL,
-                prompt=prompt,
-                config=genai.types.GenerateImagesConfig(number_of_images=1, aspect_ratio=aspect_ratio),
-            )
-            images = list(getattr(response, "generated_images", []) or [])
-            if not images:
-                return False
-            return _write_generated_image(getattr(images[0], "image", None), out_path)
-        except Exception:
+    def _generate_with_client(client: Any) -> bool:
+        response = client.models.generate_images(
+            model=GOOGLE_IMAGEN_MODEL,
+            prompt=prompt,
+            config=genai.types.GenerateImagesConfig(number_of_images=1, aspect_ratio=aspect_ratio),
+        )
+        images = list(getattr(response, "generated_images", []) or [])
+        if not images:
             return False
+        return _write_generated_image(getattr(images[0], "image", None), out_path)
+
+    def _run() -> bool:
+        if _has_google_api_key():
+            try:
+                if _generate_with_client(_create_api_key_imagen_client()):
+                    return True
+            except Exception:
+                pass
+        if _vertex_imagen_available():
+            try:
+                return _generate_with_client(_create_vertex_imagen_client())
+            except Exception:
+                return False
+        return False
 
     with ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(_run)
@@ -561,7 +587,7 @@ def ensure_session_media(session: dict[str, Any]) -> dict[str, Any]:
     choice_paths: list[str] = []
     if scene:
         choices = list(scene.get("choices") or [])
-        if _imagen_available():
+        if _google_imagen_available():
             with ThreadPoolExecutor(max_workers=min(4, len(choices) or 1)) as executor:
                 futures = [executor.submit(_generate_choice_image, session, choice, idx) for idx, choice in enumerate(choices)]
                 for future in futures:
