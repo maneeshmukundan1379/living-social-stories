@@ -148,8 +148,8 @@ function App() {
     () => form.child_name.trim() && form.event_name.trim() && !loadingCards,
     [form.child_name, form.event_name, loadingCards],
   );
-  const allCardsSelected = useMemo(
-    () => !!session && session.cards.length > 0 && session.selected_cards.length === session.cards.length,
+  const hasSelectedCards = useMemo(
+    () => !!session && (session.selected_cards?.length || 0) > 0,
     [session],
   );
 
@@ -455,12 +455,12 @@ function App() {
                       </div>
                     ))}
                   </div>
-                  {allCardsSelected ? (
+                  {hasSelectedCards ? (
                     <button
                       type="button"
                       onClick={handlePlayCompletePlan}
                       disabled={playingFullPlan || loadingCards}
-                      className="mt-4 h-14 rounded-2xl bg-emerald-600 px-5 text-base font-bold text-white shadow-md transition enabled:hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-300"
+                      className="mt-4 h-14 w-full rounded-2xl bg-emerald-600 px-5 text-base font-bold text-white shadow-md transition enabled:hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-300"
                     >
                       {playingFullPlan ? "Preparing Full Plan..." : "Play Complete Plan"}
                     </button>
