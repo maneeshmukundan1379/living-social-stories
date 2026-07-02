@@ -223,7 +223,19 @@ def spa_fallback(full_path: str):
     raise HTTPException(status_code=404, detail="Not found.")
 
 
+def server_host() -> str:
+    explicit = os.getenv("HOST", "").strip()
+    if explicit:
+        return explicit
+    # Railway sets PORT; bind broadly in that case. Local dev stays on loopback.
+    return "0.0.0.0" if os.getenv("PORT") else "127.0.0.1"
+
+
+def server_port() -> int:
+    return int(os.getenv("PORT", os.getenv("BACKEND_PORT", "8001")))
+
+
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="127.0.0.1", port=int(os.getenv("BACKEND_PORT", "8001")))
+    uvicorn.run(app, host=server_host(), port=server_port())
