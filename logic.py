@@ -45,6 +45,8 @@ SYSTEM_TTS_VOICE = os.getenv("SYSTEM_TTS_VOICE", "Samantha")
 GOOGLE_CLOUD_PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT", "").strip()
 GOOGLE_CLOUD_LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1").strip() or "us-central1"
 GOOGLE_IMAGEN_MODEL = os.getenv("GOOGLE_IMAGEN_MODEL", "imagen-4.0-generate-001")
+IMAGEN_TIMEOUT_SECONDS = max(5, int(os.getenv("IMAGEN_TIMEOUT_SECONDS", "20")))
+GEMINI_TIMEOUT_SECONDS = max(10.0, float(os.getenv("GEMINI_TIMEOUT_SECONDS", "30")))
 APP_DIR = Path(__file__).resolve().parent
 DATA_DIR = APP_DIR / "data"
 MEDIA_DIR = DATA_DIR / "media"
@@ -90,15 +92,37 @@ def _gemini_api_key() -> str:
 
 
 def _create_client() -> OpenAI:
-    return OpenAI(api_key=_gemini_api_key(), base_url=GEMINI_BASE_URL, timeout=20.0)
+    return OpenAI(api_key=_gemini_api_key(), base_url=GEMINI_BASE_URL, timeout=GEMINI_TIMEOUT_SECONDS)
 
 
 def _openai_api_key() -> str:
     return (os.getenv("OPENAI_API_KEY") or "").strip()
 
 
+def _env_flag(name: str) -> bool | None:
+    value = os.getenv(name, "").strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    return None
+
+
+def _vertex_credentials_available() -> bool:
+    creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
+    return bool(creds_path and Path(creds_path).is_file())
+
+
 def _imagen_available() -> bool:
-    return bool(genai is not None and GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION)
+    if _env_flag("DISABLE_IMAGEN") is True:
+        return False
+    if genai is None or not GOOGLE_CLOUD_PROJECT:
+        return False
+    if _env_flag("ENABLE_IMAGEN") is False:
+        return False
+    # Vertex Imagen requires a GCP service-account JSON file. Gemini/Google API keys alone
+    # are not enough and the client can hang on Railway without credentials.
+    return _vertex_credentials_available()
 
 
 def _create_imagen_client():
@@ -124,19 +148,28 @@ def _write_generated_image(image_obj: Any, out_path: Path) -> bool:
 def _generate_image_with_imagen(prompt: str, out_path: Path, *, aspect_ratio: str = "1:1") -> bool:
     if not _imagen_available():
         return False
-    try:
-        client = _create_imagen_client()
-        response = client.models.generate_images(
-            model=GOOGLE_IMAGEN_MODEL,
-            prompt=prompt,
-            config=genai.types.GenerateImagesConfig(number_of_images=1, aspect_ratio=aspect_ratio),
-        )
-        images = list(getattr(response, "generated_images", []) or [])
-        if not images:
+
+    def _run() -> bool:
+        try:
+            client = _create_imagen_client()
+            response = client.models.generate_images(
+                model=GOOGLE_IMAGEN_MODEL,
+                prompt=prompt,
+                config=genai.types.GenerateImagesConfig(number_of_images=1, aspect_ratio=aspect_ratio),
+            )
+            images = list(getattr(response, "generated_images", []) or [])
+            if not images:
+                return False
+            return _write_generated_image(getattr(images[0], "image", None), out_path)
+        except Exception:
             return False
-        return _write_generated_image(getattr(images[0], "image", None), out_path)
-    except Exception:
-        return False
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(_run)
+        try:
+            return bool(future.result(timeout=IMAGEN_TIMEOUT_SECONDS))
+        except Exception:
+            return False
 
 
 def _slugify(value: str) -> str:
